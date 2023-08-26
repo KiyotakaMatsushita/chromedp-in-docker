@@ -3,56 +3,46 @@
 package main
 
 import (
-	"context"
-	"io/ioutil"
-	"log"
+    "context"
+    "io/ioutil"
+    "log"
+    "time"
 
-	"github.com/chromedp/chromedp"
+    "github.com/chromedp/chromedp"
 )
 
 func main() {
-	// create context
-	ctx, cancel := chromedp.NewContext(
-		context.Background(),
-		// chromedp.WithDebugf(log.Printf),
-	)
-	defer cancel()
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
 
-	// capture screenshot of an element
-	var buf []byte
-	if err := chromedp.Run(ctx, elementScreenshot(`https://pkg.go.dev/`, `img.Homepage-logo`, &buf)); err != nil {
-		log.Fatal(err)
-	}
-	if err := ioutil.WriteFile("/tmp/elementScreenshot.png", buf, 0o644); err != nil {
-		log.Fatal(err)
-	}
+    allocCtx, cancel := chromedp.NewExecAllocator(ctx, append(chromedp.DefaultExecAllocatorOptions[:],
+        chromedp.Flag("no-sandbox", true),
+    )...)
+    defer cancel()
 
-	// capture entire browser viewport, returning png with quality=90
-	if err := chromedp.Run(ctx, fullScreenshot(`https://brank.as/`, 90, &buf)); err != nil {
-		log.Fatal(err)
-	}
-	if err := ioutil.WriteFile("/tmp/fullScreenshot.png", buf, 0o644); err != nil {
-		log.Fatal(err)
-	}
+    taskCtx, cancel := chromedp.NewContext(allocCtx)
+    defer cancel()
 
-	log.Printf("wrote elementScreenshot.png and fullScreenshot.png")
+    screenshot, err := captureScreenshot(taskCtx)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    err = ioutil.WriteFile("/tmp/screenshot.png", screenshot, 0644)
+    if err != nil {
+        log.Fatalf("error writing screenshot to file: %v", err)
+    }
+
+    log.Println("Saved screenshot as ./tmp/screenshot.png")
 }
 
-// elementScreenshot takes a screenshot of a specific element.
-func elementScreenshot(urlstr, sel string, res *[]byte) chromedp.Tasks {
-	return chromedp.Tasks{
-		chromedp.Navigate(urlstr),
-		chromedp.Screenshot(sel, res, chromedp.NodeVisible),
-	}
-}
+func captureScreenshot(ctx context.Context) ([]byte, error) {
+    var buf []byte
 
-// fullScreenshot takes a screenshot of the entire browser viewport.
-//
-// Note: chromedp.FullScreenshot overrides the device's emulation settings. Use
-// device.Reset to reset the emulation and viewport settings.
-func fullScreenshot(urlstr string, quality int, res *[]byte) chromedp.Tasks {
-	return chromedp.Tasks{
-		chromedp.Navigate(urlstr),
-		chromedp.FullScreenshot(res, quality),
-	}
+    err := chromedp.Run(ctx,
+        chromedp.Navigate(`https://example.com`),
+        chromedp.CaptureScreenshot(&buf),
+    )
+
+    return buf, err
 }
